@@ -1,0 +1,376 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.IO;
+using System.Xml;
+
+namespace WindowsFormsApplication4
+{
+    enum TD { TYPE_STRING = 0, TYPE_INTEGER, TYPE_DECIMAL, TYPE_DATE, TYPE_URI, TYPE_TIME, TYPE_BOOLEAN };
+
+
+    public partial class Form1 : Form
+    {
+        string nymb;
+       // string nymb2;
+
+     
+        DataSet ds = new DataSet();
+        DataTable dataTable = new DataTable();
+    
+
+        public Form1()
+        {
+            InitializeComponent();
+        }
+/*
+ * Отработка нажатия кнопки -1
+ */
+        private void button1_Click(object sender, EventArgs e)
+        {
+          
+            // Вывод XML файла в текстовое поле
+            openFileDialog1.ShowDialog();
+            nymb = openFileDialog1.FileName;
+            try
+            {
+                richTextBox1.Text = File.ReadAllText(nymb);
+                //webBrowser1.Navigate(nymb);
+            }
+            catch
+            {
+                ErrorBlinkStyle.BlinkIfDifferentError.ToString();
+            }
+         
+            
+     
+        }
+
+/*
+ * Отрабока нажатия кнопки - 2
+ */
+        private void button2_Click(object sender, EventArgs e)
+        {
+
+            //Возвращает объект DataSet в исходное состояние
+            ds.Reset();
+
+            int iNTable = 0;
+
+            // вызывайте метод BeginLoadData для каждой таблицы который
+            // Отключает уведомления, ведение индексов и ограничения в процессе загрузки данных.
+            foreach (DataTable dataTable in ds.Tables)
+            {
+                dataTable.BeginLoadData();
+            }
+
+
+
+            //Считывает XML-схему и данные в DataSet
+            ds.ReadXml(nymb);
+            
+
+            // вызывайте метод EndLoadData для каждой таблицы который
+            // Включает уведомления, ведение индексов и ограничения в процессе загрузки данных.
+            // подсчитываем количество таблиц    
+
+            foreach (DataTable dataTable in ds.Tables)
+            {
+                iNTable++;
+                dataTable.EndLoadData();
+            }
+            // Организуем массив string для хранения имён таблиц
+            string[] sTableName = new string[iNTable];
+            int i = 0;
+            // цикл для заполнения массива имён таблиц
+            foreach (DataTable dataTable in ds.Tables)
+            {
+                sTableName[i++] = dataTable.TableName;
+            }
+            // определение состояния checkbox
+            i = (int)checkBox1.CheckState;
+            // Если выполняются название DataSet "NewDataSet" и выставлена галка то делаем своё имя для DataSet
+            // для того чтобы получить действительно оригинальный schema id
+            if (ds.DataSetName == "NewDataSet" && i == 0)
+            {
+                ds.DataSetName = sTableName[0]+ fsGetFileName(nymb);
+            }
+            string schemaString = ds.GetXmlSchema();
+            // Модифицируем полученную XML схему (переопределение типов элементов и атрибутов)
+            schemaString = fpvSomeModify(schemaString, ds);
+            //выводим XML-схему для XML-представления данных, хранящихся в классе DataSet.
+
+            richTextBox2.Text = schemaString;
+            // webBrowser1.Navigate(schemaString);
+
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+
+            MemoryStream memorystream = new System.IO.MemoryStream();
+
+            Stream filestream;
+            saveFileDialog1.Filter = "XML схемы (*.xsd)|*.xsd";
+
+            if (saveFileDialog1.ShowDialog() == DialogResult.OK)
+            {
+                //ассоциируем поток с именем файла - если файла нет создаем
+
+                filestream = saveFileDialog1.OpenFile();
+
+                memorystream.Position = 0;
+                //сохраняем в поток содержимое richTextBox1
+
+                richTextBox2.SaveFile(memorystream, RichTextBoxStreamType.PlainText);
+                //переносим в файл информацию и закрываем поток
+
+                memorystream.WriteTo(filestream);
+
+                filestream.Close();
+
+
+
+            }
+        }
+/*
+ * Переопределение типов данных для элементов и аттрибутов
+ */ 
+        private string fpvSomeModify(String str,DataSet DS)
+        {
+            int iCPelement = 0,iCPattribute=0,iCP=str.Length;
+            String sType = "type=";
+            String sST = "xs:string";
+
+            // Цикл прохода для получения значений простых элементов и аттрибутов
+            // цикл таблиц
+            foreach (DataTable table in DS.Tables)
+            {
+                // текущая позиция в str (XML schema) для каждой таблицы
+                int iCPTable = iCPelement;
+                // цикл строк
+                foreach (DataRow row in table.Rows)
+                {
+                    // текущая позиция в str для каждой строки (ROW) текущей таблицы
+                    int iCPRow = iCPelement;
+                    // цикл колонок, где и получаем значение элементов и аттрибутов
+                    foreach (DataColumn column in table.Columns)
+                    {
+                        // получаем тип данных значения, если "System.String" то считаем что это
+                        // или аттрибут или простой элемент
+                        Type tRow = row[column].GetType();
+                        if (row[column].GetType().FullName == "System.String")
+                        {
+                            int iCPclose = 0;
+                            // получаем значение поля value
+                            String strf = row[column].ToString();
+                            // и определяем тип
+                            int iType = fiDefineType(strf);
+                            // если не string то пытаемся изменить значение поля type
+                            if (iType != (int)TD.TYPE_STRING)
+                            {
+                                // ветка изменений для атрибутов
+                                if (column.ColumnMapping == MappingType.Attribute)
+                                {
+                                    // ищем позицию в str с именем атрибута
+                                    iCPattribute = str.IndexOf(column.ColumnName, iCPattribute);
+                                    // нашли 
+                                    if (iCPattribute > 0)
+                                    {
+                                        // ищем позицию параметра type
+                                        iCPattribute = str.IndexOf(sType, iCPattribute);
+                                        if (iCPattribute > 0)
+                                        {
+                                            // ищем позицию значения type
+                                            iCPattribute = str.IndexOf(sST, iCPattribute);
+                                            // если нашли соответствющая замена
+                                            if (iCPattribute > 0)
+                                            {
+                                                str = str.Remove(iCPattribute, sST.Length);
+                                                if (iType == (int)TD.TYPE_INTEGER)
+                                                {
+                                                    str = str.Insert(iCPattribute, "xs:integer");
+                                                }
+                                                else if (iType == (int)TD.TYPE_DECIMAL)
+                                                {
+                                                    str = str.Insert(iCPattribute, "xs:decimal");
+                                                }
+                                                else if (iType == (int)TD.TYPE_DATE)
+                                                {
+                                                    str = str.Insert(iCPattribute, "xs:date");
+                                                }
+                                                else if (iType == (int)TD.TYPE_URI)
+                                                {
+                                                    str = str.Insert(iCPattribute, "xs:anyURI");
+                                                }
+                                                else if (iType == (int)TD.TYPE_TIME)
+                                                {
+                                                    str = str.Insert(iCPattribute, "xs:time");
+                                                }
+                                                else if (iType == (int)TD.TYPE_BOOLEAN)
+                                                {
+                                                    str = str.Insert(iCPattribute, "xs:boolean");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                // ветка изменеия для простых элементов
+                                else if (column.ColumnMapping == MappingType.Element)
+                                {
+                                    // ищем позицию в str с именем элемента
+                                    iCPelement = str.IndexOf(column.ColumnName, iCPelement);
+                                    if (iCPelement > 0)
+                                    {
+                                        // ищем позицию параметра type
+                                        iCPelement = str.IndexOf(sType, iCPelement);
+                                        // ищем позицию закрытия для текущего элемента (чтоб не выйти за границу данного элемента)
+                                        iCPclose = str.IndexOf("/>", iCPelement);
+                                        if (iCPelement > 0)
+                                        {
+                                            // ищем позицию значения параметра type
+                                            iCPelement = str.IndexOf(sST, iCPelement);
+                                            // нашли и внутри текущего элемента производим замену
+                                            if (iCPelement > 0 && iCPelement < iCPclose)
+                                            {
+                                                str = str.Remove(iCPelement, sST.Length);
+                                                if (iType == (int)TD.TYPE_INTEGER)
+                                                {
+                                                    str = str.Insert(iCPelement, "xs:integer");
+                                                }
+                                                else if (iType == (int)TD.TYPE_DECIMAL)
+                                                {
+                                                    str = str.Insert(iCPelement, "xs:decimal");
+                                                }
+                                                else if (iType == (int)TD.TYPE_DATE)
+                                                {
+                                                    str = str.Insert(iCPelement, "xs:date");
+                                                }
+                                                else if (iType == (int)TD.TYPE_URI)
+                                                {
+                                                    str = str.Insert(iCPelement, "xs:anyURI");
+                                                }
+                                                else if (iType == (int)TD.TYPE_TIME)
+                                                {
+                                                    str = str.Insert(iCPelement, "xs:time");
+                                                }
+                                                else if (iType == (int)TD.TYPE_BOOLEAN)
+                                                {
+                                                    str = str.Insert(iCPelement, "xs:boolean");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (iCPattribute < 0 || iCPelement < 0)
+                                {
+                                    iCPattribute = iCPelement = iCPTable;
+                                    continue;
+                                }
+                                if (iCPattribute != 0 && iCPelement != 0 )
+                                {
+                                    iCPattribute = iCPelement;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return str;
+        }
+        /*********************************************************************
+         *  функция определения типа данных
+         *  Вход: string содержащий значение
+         *  Выход: тип элемента.
+         *      { TYPE_STRING = 0, TYPE_INTEGER, TYPE_DECIMAL, TYPE_DATE, TYPE_URI,
+         *        TYPE_TIME, TYPE_BOOLEAN };
+         *********************************************************************/
+        private int fiDefineType(String str)
+        {
+            int iRes = (int)TD.TYPE_STRING; // String
+            int j, i,k,n,m;
+            // Определение URI
+            if (str.StartsWith("http://") || str.StartsWith("HTTP:")||str.StartsWith("WWW.")||str.StartsWith("www."))
+            {
+                iRes = (int)TD.TYPE_URI; //URI
+                return iRes;
+            }
+            // Определение типа BOOLEAN
+            if (str.StartsWith("true") || str.StartsWith("false") || str.StartsWith("TRUE") || str.StartsWith("FALSE"))
+            {
+                iRes = (int)TD.TYPE_BOOLEAN; //BOOLEAN
+                return iRes;
+            }
+            // Цикл для обработки входящей строки 
+            for (j = 0,i = 0,k=0,n=0,m=0; i < str.Length; i++)
+            {
+                if (str[i] > 0x2F && str[i] < 0x3A)
+                {
+                    j++;
+                }
+                if (str[i] == 0x2c || str[i] == 0x2E) // запятая ',' или точка '.'
+                {
+                    k++;
+                }
+                if (str[i] == 0x2d) // тире '-'
+                {
+                    n++;
+                }
+                if (str[i] == 0x3A) // двоеточие ';'
+                {
+                    m++;
+                }
+            }
+            // Согласно полученным счётчикам из предыдущего цикла определяем тип данных
+            if(i == j) // xxxxxxx
+            {
+                iRes = (int)TD.TYPE_INTEGER; //integer
+                return iRes;
+            }
+            if (i == (j + 1) && k == 1)//xxxxx.xxx
+            {
+                iRes = (int)TD.TYPE_DECIMAL; // decimal
+                return iRes;
+            }
+            if ((i == 10 && j == 8 && n == 2) || (i == 10 && j == 8 && k == 2) || (i == 8 && j == 6 && k == 2))// xxxx-xx-xx || xxxx.xx.xx || xx.xx.xx
+            {
+                iRes = (int)TD.TYPE_DATE; // Data
+                return iRes;
+            }
+            if ((i == 5 && m == 1) || (i == 8 && m == 2)) // xx:xx , xx:xx:xx
+            {
+                iRes = (int)TD.TYPE_TIME; // TIME
+                return iRes;
+            }
+            return iRes;
+        }
+
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+
+        }
+
+
+        
+
+        private string fsGetFileName(string fullpath)
+        {
+            string file = System.IO.Path.GetFileNameWithoutExtension(fullpath);
+            return file;
+        }
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            Application.Exit();
+        }
+
+       
+
+    }
+}
